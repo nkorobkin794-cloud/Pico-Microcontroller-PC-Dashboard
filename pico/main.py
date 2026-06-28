@@ -2,6 +2,7 @@ import digitalio
 import board
 import time
 import usb_hid
+import usb_cdc
 import displayio
 import terminalio
 import busio
@@ -44,6 +45,12 @@ loc = clk.value
 cc = ConsumerControl(usb_hid.devices)
 i = 0
 last_event_time = 0
+
+# Serial channel to PC
+stats_serial = usb_cdc.data
+
+# Default sate for cpu_util_text
+cpu_util_text = "--"
 
 # Variables for menu innitialization
 current_mode = "menu"
@@ -221,6 +228,31 @@ underline, box_w, gap, menu_group = select_menu_mode()
 
 # Main Loop
 while True:
+    
+        # 1. CORE SERIAL STREAM ENGINE (Bomb-Proof String Verification)
+    if stats_serial is not None and stats_serial.in_waiting > 0:
+        try:
+            data = stats_serial.readline()
+            if data:
+                # Decode and strip down to absolute raw text
+                clean_text = data.decode("utf-8").strip()
+                
+                # CRASH PREVENTION: Drop packets completely if they are empty, 
+                # or contain accidental spaces/text characters before trying to convert
+                if clean_text and clean_text != "" and clean_text[0].isdigit():
+                    # Sanitize any accidental percent symbols sent by PC
+                    clean_text = clean_text.replace('%', '')
+                    
+                    # Safe conversion guaranteed now
+                    cpu_num = float(clean_text)
+                    cpu_util_text = f"{cpu_num:.1f}%"
+                    
+                    # Quick physical visual flash confirmation (No delays!)
+                    led.value = True
+                    led.value = False
+        except Exception:
+            # Catch absolutely everything to prevent Safe Mode crashes
+            pass
 
 
     # Encoder logic handling
@@ -257,6 +289,9 @@ while True:
 
 
     elif current_mode == "stats":
+                
+        # CPU utilization text updating
+        label_cpu_util.text = f"CPU Utilization: {cpu_util_text}"
         
         # Sensor update
         if time.monotonic() - last_event_time > 1:
