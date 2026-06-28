@@ -20,7 +20,7 @@ A real-time system using Raspberry Pi Pico + PC Python application.
 
 \- ST7796 TFT display UI
 
-\- USB serial communication
+\- USB serial packet-based communication
 
 \- Menu system (stats / volume)
 
@@ -58,7 +58,7 @@ A real-time system using Raspberry Pi Pico + PC Python application.
 
 \*\*Communication:\*\*
 
-\- USB serial based communication between PC and Pico
+\- USB serial packet-based communication between PC and Pico
 
 
 

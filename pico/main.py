@@ -49,8 +49,8 @@ last_event_time = 0
 # Serial channel to PC
 stats_serial = usb_cdc.data
 
-# Default sate for cpu_util_text
-cpu_util_text = "--"
+# Dictionary for the field
+pc_stats = {}
 
 # Variables for menu innitialization
 current_mode = "menu"
@@ -177,6 +177,16 @@ volume_group.insert(0, highlight)
 def switch_mode(new_mode):
     global current_mode
     group.pop()
+    
+    # Sending message to the PC to start data transfer:
+    if current_mode != "stats" and new_mode == "stats":
+        if stats_serial is not None:
+            stats_serial.write(b"START\n")
+    
+    if current_mode == "stats" and new_mode != "stats":
+        if stats_serial is not None:
+            stats_serial.write(b"STOP\n")
+            
     current_mode = new_mode
     
     if new_mode == "menu":
@@ -228,31 +238,6 @@ underline, box_w, gap, menu_group = select_menu_mode()
 
 # Main Loop
 while True:
-    
-        # 1. CORE SERIAL STREAM ENGINE (Bomb-Proof String Verification)
-    if stats_serial is not None and stats_serial.in_waiting > 0:
-        try:
-            data = stats_serial.readline()
-            if data:
-                # Decode and strip down to absolute raw text
-                clean_text = data.decode("utf-8").strip()
-                
-                # CRASH PREVENTION: Drop packets completely if they are empty, 
-                # or contain accidental spaces/text characters before trying to convert
-                if clean_text and clean_text != "" and clean_text[0].isdigit():
-                    # Sanitize any accidental percent symbols sent by PC
-                    clean_text = clean_text.replace('%', '')
-                    
-                    # Safe conversion guaranteed now
-                    cpu_num = float(clean_text)
-                    cpu_util_text = f"{cpu_num:.1f}%"
-                    
-                    # Quick physical visual flash confirmation (No delays!)
-                    led.value = True
-                    led.value = False
-        except Exception:
-            # Catch absolutely everything to prevent Safe Mode crashes
-            pass
 
 
     # Encoder logic handling
@@ -289,9 +274,29 @@ while True:
 
 
     elif current_mode == "stats":
+        
+        if stats_serial is not None and stats_serial.in_waiting > 0:
+            try:
+                packet = stats_serial.readline().decode().strip()
+                
+                # Ignore the empty fields:
+                if packet:
+                    fields = packet.split(";")
+                
+                    for field in fields:
+                    
+                        # Ignore malformed fields:
+                        if "=" not in field:
+                            continue
+                    
+                        key, value = field.split("=", 1)
+                        pc_stats[key] = value
+                        
+            except Exception:
+                pass
                 
         # CPU utilization text updating
-        label_cpu_util.text = f"CPU Utilization: {cpu_util_text}"
+        label_cpu_util.text = f"CPU Utilization: {pc_stats.get('CPU', '--')} %"
         
         # Sensor update
         if time.monotonic() - last_event_time > 1:

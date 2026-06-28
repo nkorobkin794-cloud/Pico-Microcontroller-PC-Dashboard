@@ -7,6 +7,8 @@ PORT = "COM4"
 BAUD = 115200
 
 ser = None
+sending = False
+
 
 print("STARTING SCRIPT...")
 
@@ -25,33 +27,54 @@ while ser is None:
 
 # Main Loop
 while True:
-    try:
-        cpu = psutil.cpu_percent(interval=1)
-
-        data = f"{cpu}\n"
-        print("SENDING:", repr(data))
-
-        ser.write(data.encode())
-        ser.flush()
-
-        print("WRITE OK")
-
-    except serial.SerialException as e:
-        print("Pico disconnected:", e)
-
+    
+    # Check for commands from Pico
+    if ser.in_waiting > 0:
+        command = ser.readline().decode().strip()
+        
+        if command == "START":
+            sending = True
+            print("Started data transfer")
+            
+        elif command == "STOP":
+            sending = False
+            print("Ended data transfer")
+        
+    if sending:
         try:
-            ser.close()
-        except:
-            pass
+            cpu = psutil.cpu_percent(interval=1)
+        
+            # Data packet structure for sending:
+            packet = (
+            f"CPU={cpu:.1f}\n"
+            )
+        
+            # DEBUG: print the sending packets
+            print("SENDING:", repr(packet))
 
-        ser = None
+            # Sending the encoded data
+            ser.write(packet.encode("utf-8"))
+            ser.flush()
 
-        while ser is None:
+            # DEBUG: print if the write was successful
+            print("WRITE OK")
+
+        except serial.SerialException as e:
+            print("Pico disconnected:", e)
+
             try:
-                print("Reconnecting...")
-                ser = serial.Serial(PORT, BAUD, timeout=1)
-                time.sleep(2)
-                print("Reconnected!")
+                ser.close()
+            except:
+                pass
 
-            except serial.SerialException:
-                time.sleep(1)
+            ser = None
+
+            while ser is None:
+                try:
+                    print("Reconnecting...")
+                    ser = serial.Serial(PORT, BAUD, timeout=1)
+                    time.sleep(2)
+                    print("Reconnected!")
+
+                except serial.SerialException:
+                    time.sleep(1)
