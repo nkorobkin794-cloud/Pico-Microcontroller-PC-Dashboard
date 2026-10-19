@@ -51,6 +51,8 @@ stats_serial = usb_cdc.data
 
 # Dictionary for the field
 pc_stats = {}
+serial_buffer = ""
+last_encoder_move = 0
 
 # Variables for menu innitialization
 current_mode = "menu"
@@ -89,45 +91,190 @@ bl = digitalio.DigitalInOut(board.GP21)
 bl.direction = digitalio.Direction.OUTPUT
 bl.value = True  # Turn on backlight
 
-# Creating a group
+# Root display group
 group = displayio.Group()
 display.root_group = group  # Creates a container for information on the screen
 
-# Printing the text just for fun
-label = Label(terminalio.FONT, text="Welcome Nikita")  # creating lable(text) to display it on the screen
 
-label.x = 20  # Positioning text on the screen(like in pygame)
-label.y = 20
+# /// Stats dashboard ///
 
-group.append(label)  # Ataching text to the group, now it becomes visible
+NAVY = 0x101820
+PANEL = 0x1B2835
+PANEL_SELECTED = 0x263A49
+MUTED = 0x91A4B7
+GREEN = 0x5CE0A0
 
-group.scale = 2
+# Format: (data key, display name, unit, category)
+stats_items = [
+    ("CPU", "CPU Usage", "%", "PC"),
+    ("RAM", "Memory Usage", "%", "PC"),
+    ("DISK", "Disk Usage", "%", "PC"),
+    ("UPLOAD", "Network Upload", "KB/s", "PC"),
+    ("DOWNLOAD", "Network Download", "KB/s", "PC"),
+    ("TEMP", "Room Temperature", "C", "ROOM"),
+    ("HUMIDITY", "Humidity", "%", "ROOM"),
+    ("UPTIME", "PC Uptime", "", "PC"),
+]
 
-# Printing the temperature, humidity and CPU utillization
+stats_index = 0
+stats_control_index = 0  # 0 = previous, 1 = next, 2 = back
+room_temperature = "--"
+room_humidity = "--"
 
-# Temperature
-label_temp = Label(terminalio.FONT, text="")
+# Dashboard background and header
+stats_group.append(Rect(0, 0, 480, 5, fill=TIFFANY))
 
-label_temp.x = 20
-label_temp.y = 60
+title = Label(
+    terminalio.FONT,
+    text="SYSTEM MONITOR",
+    color=WHITE,
+    x=20,
+    y=22
+)
+stats_group.append(title)
 
-stats_group.append(label_temp)
+welcome_stats = Label(
+    terminalio.FONT,
+    text="WELCOME, NIKITA!",
+    color=TIFFANY,
+    x=330,
+    y=22
+)
+stats_group.append(welcome_stats)
 
-# Humidity
-label_humidity = Label(terminalio.FONT, text="")
+subtitle = Label(
+    terminalio.FONT,
+    text="PC PERFORMANCE  /  ROOM ENVIRONMENT",
+    color=MUTED,
+    x=20,
+    y=43
+)
+stats_group.append(subtitle)
+stats_group.append(Rect(20, 53, 440, 1, fill=TIFFANY))
 
-label_humidity.x = 20
-label_humidity.y = 78
+# Display five metrics per page
+stats_page = 0
+stats_rows = []
 
-stats_group.append(label_humidity)
+row_y = [75, 112, 149, 186, 223]
 
-# CPU utilization:
-label_cpu_util = Label(terminalio.FONT, text="")
+for y in row_y:
+    panel = Rect(20, y - 13, 440, 32, fill=PANEL)
+    stats_group.append(panel)
 
-label_cpu_util.x = 20
-label_cpu_util.y = 98
+    name_label = Label(
+        terminalio.FONT,
+        text="",
+        color=WHITE,
+        x=32,
+        y=y
+    )
 
-stats_group.append(label_cpu_util)
+    value_label = Label(
+        terminalio.FONT,
+        text="--",
+        color=GREEN,
+        x=300,
+        y=y
+    )
+
+    stats_group.append(name_label)
+    stats_group.append(value_label)
+    stats_rows.append((panel, name_label, value_label))
+
+
+# Bottom-right virtual controls, selected using the rotary encoder
+stats_group.append(Rect(20, 270, 440, 1, fill=0x354554))
+
+stats_controls = []
+control_specs = [
+    ("<", 322, 44),
+    (">", 368, 44),
+    ("BACK", 414, 44),
+]
+
+for label_text, x, width in control_specs:
+    control_bg = Rect(x, 282, width, 27, fill=PANEL)
+    control_label = Label(
+        terminalio.FONT,
+        text=label_text,
+        color=WHITE
+    )
+    control_label.anchor_point = (0.5, 0.5)
+    control_label.anchored_position = (x + width // 2, 282 + 27 // 2)
+    stats_group.append(control_bg)
+    stats_group.append(control_label)
+    stats_controls.append({
+        "bg": control_bg,
+        "label": control_label,
+        "x": x,
+        "width": width,
+    })
+
+stats_control_highlight = Rect(
+    stats_controls[0]["x"], 282,
+    stats_controls[0]["width"], 27,
+    outline=TIFFANY
+)
+stats_group.append(stats_control_highlight)
+
+stats_footer = Label(
+    terminalio.FONT,
+    text="ROTATE: SELECT CONTROL   PRESS: ACTIVATE",
+    color=MUTED,
+    x=20,
+    y=296
+)
+stats_group.append(stats_footer)
+
+
+def update_stats_ui():
+    start = stats_page * 5
+
+    for row, labels in enumerate(stats_rows):
+        panel, name_label, value_label = labels
+        item_index = start + row
+
+        # Hide rows with no corresponding metric
+        if item_index >= len(stats_items):
+            panel.hidden = True
+            name_label.hidden = True
+            value_label.hidden = True
+            continue
+
+        panel.hidden = False
+        name_label.hidden = False
+        value_label.hidden = False
+
+        key, name, unit, category = stats_items[item_index]
+
+        if key == "TEMP":
+            value = room_temperature
+        elif key == "HUMIDITY":
+            value = room_humidity
+        else:
+            value = pc_stats.get(key, "--")
+
+        name_label.text = name
+
+        if value != "--" and unit:
+            value_label.text = "{} {}".format(value, unit)
+        else:
+            value_label.text = str(value)
+
+    # Highlight the selected navigation control
+    for i, control in enumerate(stats_controls):
+        control["bg"].fill = (
+            PANEL_SELECTED if i == stats_control_index else PANEL
+        )
+
+    selected_control = stats_controls[stats_control_index]
+    stats_control_highlight.x = selected_control["x"]
+    
+update_stats_ui()
+
+
+# /// Volume Menu ///
 
 # Images for the volume menu
 icons = {}
@@ -163,7 +310,7 @@ for i, name in enumerate(names):
     
 selected_index = 0
 
-highlight = Rect(
+volume_highlight = Rect(
     x=buttons[selected_index].x - 2,
     y=buttons[selected_index].y - 2,
     width=buttons[selected_index].width + 32,
@@ -171,9 +318,9 @@ highlight = Rect(
     outline=TIFFANY
 )
 
-volume_group.insert(0, highlight)
+volume_group.insert(0, volume_highlight)
     
-
+# Main view logic
 def switch_mode(new_mode):
     global current_mode
     group.pop()
@@ -197,44 +344,106 @@ def switch_mode(new_mode):
         group.append(volume_group)
 
 def select_menu_mode():
-    
-    # Creating a group for menu templates
+
     menu_group = displayio.Group()
-    group.append(menu_group)
 
-    # Menu teplates parrameters and position
-    box_w = 80
-    box_h = 50
-    gap = 20
-    y_pos = 60
+    menu_group.append(Rect(0, 0, 480, 5, fill=TIFFANY))
 
-    # Left Box Creation
-    box_vol = Rect(x=30, y=y_pos, width=box_w, height=box_h, fill=WHITE)
+    heading = Label(
+        terminalio.FONT,
+        text="PICO CONTROL CENTER",
+        color=WHITE,
+        x=24,
+        y=30
+    )
+    menu_group.append(heading)
+
+    welcome = Label(
+        terminalio.FONT,
+        text="WELCOME, NIKITA!",
+        color=TIFFANY,
+        x=330,
+        y=30
+    )
+    menu_group.append(welcome)
+
+    subtitle = Label(
+        terminalio.FONT,
+        text="Choose a function",
+        color=MUTED,
+        x=24,
+        y=55
+    )
+    menu_group.append(subtitle)
+    menu_group.append(Rect(24, 68, 432, 1, fill=TIFFANY))
+
+    box_w = 185
+    box_h = 112
+    gap = 26
+    y_pos = 112
+    left_x = 42
+    right_x = left_x + box_w + gap
+
+    box_vol = Rect(
+        x=left_x, y=y_pos, width=box_w, height=box_h,
+        outline=PANEL
+    )
+    box_stats = Rect(
+        x=right_x, y=y_pos, width=box_w, height=box_h,
+        outline=PANEL
+    )
     menu_group.append(box_vol)
-
-    # Right Box Creation
-    box_stats = Rect(x=30 + box_w + gap, y=y_pos, width=box_w, height=box_h, fill=WHITE)
     menu_group.append(box_stats)
 
-    # Selection Indicator Creation
-    underline = Rect(x=30, y=y_pos + box_h + 6, width=box_w, height=5, fill=TIFFANY)
-    menu_group.append(underline)
-
-    # Text Inside The Templates
-    label_vol = Label(terminalio.FONT, text="VOLUME", color=BLACK)
+    label_vol = Label(
+        terminalio.FONT, text="VOLUME", color=WHITE
+    )
     label_vol.anchor_point = (0.5, 0.5)
-    label_vol.anchored_position = (30 + box_w/2, y_pos + box_h/2)
+    label_vol.anchored_position = (left_x + box_w // 2, y_pos + 48)
     menu_group.append(label_vol)
 
-    label_stats = Label(terminalio.FONT, text="STATS", color=BLACK)
+    vol_hint = Label(
+        terminalio.FONT, text="Media controls", color=MUTED
+    )
+    vol_hint.anchor_point = (0.5, 0.5)
+    vol_hint.anchored_position = (left_x + box_w // 2, y_pos + 75)
+    menu_group.append(vol_hint)
+
+    label_stats = Label(
+        terminalio.FONT, text="SYSTEM MONITOR", color=WHITE
+    )
     label_stats.anchor_point = (0.5, 0.5)
-    label_stats.anchored_position = (30 + box_w + gap + box_w/2, y_pos + box_h/2)
+    label_stats.anchored_position = (right_x + box_w // 2, y_pos + 48)
     menu_group.append(label_stats)
 
-    return underline, box_w, gap, menu_group
+    stats_hint = Label(
+        terminalio.FONT, text="PC + room stats", color=MUTED
+    )
+    stats_hint.anchor_point = (0.5, 0.5)
+    stats_hint.anchored_position = (right_x + box_w // 2, y_pos + 75)
+    menu_group.append(stats_hint)
 
-underline, box_w, gap, menu_group = select_menu_mode()
+    menu_highlight = Rect(
+        x=left_x, y=y_pos, width=box_w, height=box_h,
+        outline=TIFFANY
+    )
+    menu_group.append(menu_highlight)
 
+    instruction = Label(
+        terminalio.FONT,
+        text="ROTATE TO CHOOSE   /   PRESS TO OPEN",
+        color=MUTED,
+        x=24,
+        y=270
+    )
+    menu_group.append(instruction)
+
+    return menu_highlight, box_w, gap, menu_group
+
+
+menu_highlight, box_w, gap, menu_group = select_menu_mode()
+
+group.append(menu_group)
 
 # Main Loop
 while True:
@@ -257,9 +466,9 @@ while True:
 
             # Updating Menu Selection
         if menu_index == 0:
-            underline.x = 30
+            menu_highlight.x = 42
         else:
-            underline.x = 30 + box_w + gap
+            menu_highlight.x = 42 + box_w + gap
         
         if pressed:
             while not btn.value:
@@ -274,48 +483,75 @@ while True:
 
 
     elif current_mode == "stats":
-        
+
+        # Read PC data without waiting for a full line
         if stats_serial is not None and stats_serial.in_waiting > 0:
             try:
-                packet = stats_serial.readline().decode().strip()
-                
-                # Ignore the empty fields:
-                if packet:
-                    fields = packet.split(";")
-                
-                    for field in fields:
-                    
-                        # Ignore malformed fields:
-                        if "=" not in field:
-                            continue
-                    
-                        key, value = field.split("=", 1)
-                        pc_stats[key] = value
-                        
+                serial_buffer += stats_serial.read(
+                    stats_serial.in_waiting
+                ).decode()
+
+                while "\n" in serial_buffer:
+                    packet, serial_buffer = serial_buffer.split("\n", 1)
+                    packet = packet.strip()
+
+                    if packet:
+                        for field in packet.split(";"):
+                            if "=" in field:
+                                key, value = field.split("=", 1)
+                                pc_stats[key] = value
+
             except Exception:
                 pass
-                
-        # CPU utilization text updating
-        label_cpu_util.text = f"CPU Utilization: {pc_stats.get('CPU', '--')} %"
-        
-        # Sensor update
+
+        # Rotate to choose one of the three on-screen controls
+        if moved:
+            loc = cur
+            now = time.monotonic()
+
+            if now - last_encoder_move >= 0.004:
+                if dt.value != cur:
+                    stats_control_index = (
+                        stats_control_index + 1
+                    ) % len(stats_controls)
+                else:
+                    stats_control_index = (
+                        stats_control_index - 1
+                    ) % len(stats_controls)
+
+                last_encoder_move = now
+                update_stats_ui()
+
+        # Update room sensors once per second
         if time.monotonic() - last_event_time > 1:
-            
-            # Temperature updating
-            temperature = sensor.temperature  # Getting data from the sensor
-            humidity = sensor.relative_humidity
-            
-            # Temperature text updating
-            label_temp.text = f"Room Temp: {temperature:.1f} C"
-            label_humidity.text = f"Humidity: {humidity:.1f} %"
-            
+            try:
+                room_temperature = "{:.1f}".format(
+                    sensor.temperature
+                )
+                room_humidity = "{:.1f}".format(
+                    sensor.relative_humidity
+                )
+                update_stats_ui()
+            except Exception:
+                pass
 
             last_event_time = time.monotonic()
-            
+
+        # Activate the selected on-screen control
         if pressed:
             while not btn.value:
                 pass
-            switch_mode("menu")
+
+            if stats_control_index == 0:
+                stats_page = (stats_page - 1) % 2
+            elif stats_control_index == 1:
+                stats_page = (stats_page + 1) % 2
+            else:
+                switch_mode("menu")
+
+            update_stats_ui()
+
+
 
 
     elif current_mode == "volume":
@@ -346,8 +582,8 @@ while True:
             selected_index %= len(buttons)
             loc = cur
             
-            highlight.x = buttons[selected_index].x - 2
-            highlight.y = buttons[selected_index].y - 2
+            volume_highlight.x = buttons[selected_index].x - 2
+            volume_highlight.y = buttons[selected_index].y - 2
             
         if pressed:
             while not btn.value:
