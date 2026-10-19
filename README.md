@@ -14,7 +14,7 @@ A real-time system using Raspberry Pi Pico + PC Python application.
 
 
 
-\- Live CPU monitoring from PC
+\- Live stats monitoring from PC
 
 \- Temperature \& humidity sensor (AHT10)
 
@@ -50,7 +50,7 @@ A real-time system using Raspberry Pi Pico + PC Python application.
 
 \*\*PC:\*\*
 
-\- System performance monitoring (CPU utilization)
+\- System performance monitoring (CPU utilization, memory usage, disk usage, network upload, network download, PC uptime)
 
 \- Telemetry data transmission via USB serial
 
@@ -70,5 +70,5 @@ A real-time system using Raspberry Pi Pico + PC Python application.
 
 
 
-Early development (v0.2)
+Early development (v0.5)
 
