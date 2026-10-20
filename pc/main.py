@@ -89,6 +89,39 @@ while True:
 
         # PC uptime
         uptime = int(time.time() - psutil.boot_time())
+        
+        
+        # CPU clock frequency in MHz
+        try:
+            frequency_info = psutil.cpu_freq()
+
+            if frequency_info and frequency_info.current:
+                frequency = f"{frequency_info.current:.0f}"
+            else:
+                frequency = "--"
+        except Exception:
+            frequency = "--"
+
+        # Number of logical CPU processors
+        logical_cpus = psutil.cpu_count(logical=True)
+
+        if logical_cpus is None:
+            logical_cpus = "--"
+
+        # Number of running processes
+        processes = len(psutil.pids())
+
+        # Battery percentage, if available
+        try:
+            battery_info = psutil.sensors_battery()
+
+            if battery_info is not None:
+                battery = str(round(battery_info.percent))
+            else:
+                battery = "--"
+        except Exception:
+            battery = "--"
+
 
         # Send one semicolon-separated packet
         packet = (
@@ -97,8 +130,13 @@ while True:
             f"DISK={disk:.1f};"
             f"UPLOAD={upload:.1f};"
             f"DOWNLOAD={download:.1f};"
-            f"UPTIME={uptime}\n"
+            f"UPTIME={uptime};"
+            f"FREQ={frequency};"
+            f"THREADS={logical_cpus};"
+            f"PROCESSES={processes};"
+            f"BATTERY={battery}\n"
         )
+
 
         ser.write(packet.encode("utf-8"))
 

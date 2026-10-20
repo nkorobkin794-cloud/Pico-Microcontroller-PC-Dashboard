@@ -114,7 +114,12 @@ stats_items = [
     ("TEMP", "Room Temperature", "C", "ROOM"),
     ("HUMIDITY", "Humidity", "%", "ROOM"),
     ("UPTIME", "PC Uptime", "", "PC"),
+    ("FREQ", "CPU Clock", "MHz", "PC"),
+    ("THREADS", "Logical CPUs", "", "PC"),
+    ("PROCESSES", "Running Processes", "", "PC"),
+    ("BATTERY", "Battery", "%", "PC"),
 ]
+
 
 stats_index = 0
 stats_control_index = 0  # 0 = previous, 1 = next, 2 = back
@@ -542,12 +547,18 @@ while True:
             while not btn.value:
                 pass
 
+            
+            page_count = (
+                len(stats_items) + len(stats_rows) - 1
+            ) // len(stats_rows)
+
             if stats_control_index == 0:
-                stats_page = (stats_page - 1) % 2
+                stats_page = (stats_page - 1) % page_count
             elif stats_control_index == 1:
-                stats_page = (stats_page + 1) % 2
+                stats_page = (stats_page + 1) % page_count
             else:
                 switch_mode("menu")
+
 
             update_stats_ui()
 
