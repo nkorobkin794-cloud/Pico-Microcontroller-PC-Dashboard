@@ -50,7 +50,59 @@ A real-time system using Raspberry Pi Pico + PC Python application.
 
 \*\*PC:\*\*
 
-\- System performance monitoring (CPU utilization, memory usage, disk usage, network upload, network download, PC uptime)
+\- System performance monitoring (\# Pico-Microcontroller-PC-Dashboard
+
+
+
+A real-time system using Raspberry Pi Pico + PC Python application.
+
+
+
+\---
+
+
+
+\## Features
+
+
+
+\- Live stats monitoring from PC
+
+\- Temperature \& humidity sensor (AHT10)
+
+\- ST7796 TFT display UI
+
+\- USB serial packet-based communication
+
+\- Menu system (stats / volume)
+
+\- Rotary encoder navigation for menu control and selection
+
+
+
+\---
+
+
+
+\## Architecture
+
+
+
+\*\*Pico:\*\*
+
+\- UI rendering on ST7796 display
+
+\- Sensor data acquisition (AHT10)
+
+\- Rotary encoder input handling (menu navigation + selection)
+
+\- Display state management (menu / stats / volume)
+
+
+
+\*\*PC:\*\*
+
+\- System performance monitoring (CPU utilization, memory usage, disk usage, network upload, network download, PC uptime, battery percentage, CPU clock speed, running processes, number of logical CPUs)
 
 \- Telemetry data transmission via USB serial
 
@@ -70,5 +122,4 @@ A real-time system using Raspberry Pi Pico + PC Python application.
 
 
 
-Early development (v0.5)
-
+Early development (v0.6)
