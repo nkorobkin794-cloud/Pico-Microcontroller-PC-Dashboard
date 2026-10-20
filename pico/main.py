@@ -1,5 +1,6 @@
 import digitalio
 import board
+import gc
 import time
 import usb_hid
 import usb_cdc
@@ -14,6 +15,9 @@ from adafruit_hid.consumer_control import ConsumerControl
 from adafruit_hid.consumer_control_code import ConsumerControlCode
 from adafruit_display_text.label import Label
 from adafruit_display_shapes.rect import Rect
+
+# Clearing RAM
+gc.collect()
 
 displayio.release_displays()
 
@@ -53,6 +57,10 @@ stats_serial = usb_cdc.data
 pc_stats = {}
 serial_buffer = ""
 last_encoder_move = 0
+
+# Separate data storage for the Volume menu
+player_data = {}
+player_serial_buffer = ""
 
 # Variables for menu innitialization
 current_mode = "menu"
@@ -233,14 +241,17 @@ stats_footer = Label(
 stats_group.append(stats_footer)
 
 
+
 def update_stats_ui():
-    start = stats_page * 5
+    # Reclaim unused memory before refreshing the display.
+    gc.collect()
+
+    start = stats_page * len(stats_rows)
 
     for row, labels in enumerate(stats_rows):
         panel, name_label, value_label = labels
         item_index = start + row
 
-        # Hide rows with no corresponding metric
         if item_index >= len(stats_items):
             panel.hidden = True
             name_label.hidden = True
@@ -260,14 +271,18 @@ def update_stats_ui():
         else:
             value = pc_stats.get(key, "--")
 
-        name_label.text = name
+        # Do not rebuild the text when it has not changed.
+        if name_label.text != name:
+            name_label.text = name
 
         if value != "--" and unit:
-            value_label.text = "{} {}".format(value, unit)
+            display_value = "{} {}".format(value, unit)
         else:
-            value_label.text = str(value)
+            display_value = str(value)
 
-    # Highlight the selected navigation control
+        if value_label.text != display_value:
+            value_label.text = display_value
+
     for i, control in enumerate(stats_controls):
         control["bg"].fill = (
             PANEL_SELECTED if i == stats_control_index else PANEL
@@ -275,13 +290,14 @@ def update_stats_ui():
 
     selected_control = stats_controls[stats_control_index]
     stats_control_highlight.x = selected_control["x"]
+
     
 update_stats_ui()
 
 
 # /// Volume Menu ///
 
-# Images for the volume menu
+# Load the existing icons
 icons = {}
 
 for name in ["prev", "play", "next", "volume", "back"]:
@@ -295,39 +311,185 @@ for name in ["prev", "play", "next", "volume", "back"]:
         "palette": palette
     }
 
+# Player header
+volume_group.append(Rect(0, 0, 480, 5, fill=TIFFANY))
+
+volume_group.append(Label(
+    terminalio.FONT,
+    text="MEDIA PLAYER",
+    color=WHITE,
+    x=24,
+    y=25
+))
+
+volume_group.append(Label(
+    terminalio.FONT,
+    text="PLAYBACK CONTROLS",
+    color=MUTED,
+    x=24,
+    y=45
+))
+
+volume_group.append(Rect(20, 57, 440, 1, fill=TIFFANY))
+
+# Track information panel
+volume_group.append(Rect(20, 68, 440, 100, fill=PANEL))
+
+media_title = Label(
+    terminalio.FONT,
+    text="Waiting for track info...",
+    color=WHITE,
+    x=32,
+    y=88
+)
+volume_group.append(media_title)
+
+media_artist = Label(
+    terminalio.FONT,
+    text="Artist unavailable",
+    color=MUTED,
+    x=32,
+    y=111
+)
+volume_group.append(media_artist)
+
+media_status = Label(
+    terminalio.FONT,
+    text="Media controls ready",
+    color=TIFFANY,
+    x=32,
+    y=143
+)
+volume_group.append(media_status)
+
+# Volume indicator
+volume_group.append(Rect(310, 119, 130, 1, fill=0x354554))
+
+volume_group.append(Label(
+    terminalio.FONT,
+    text="VOLUME",
+    color=MUTED,
+    x=310,
+    y=88
+))
+
+volume_level = 50
+
+volume_value_label = Label(
+    terminalio.FONT,
+    text="50%*",
+    color=GREEN,
+    x=390,
+    y=88
+)
+volume_group.append(volume_value_label)
+
+# Ten individually updateable segments
+volume_segments = []
+
+for i in range(10):
+    segment = Rect(
+        310 + i * 13,
+        128,
+        10,
+        8,
+        fill=PANEL_SELECTED
+    )
+    volume_group.append(segment)
+    volume_segments.append(segment)
+
+volume_note = Label(
+    terminalio.FONT,
+    text="*ESTIMATE",
+    color=MUTED,
+    x=310,
+    y=151
+)
+volume_group.append(volume_note)
+
+# Five original icons, arranged across the bottom
 buttons = []
+volume_slots = [48, 144, 240, 336, 432]
+button_y = 222
 
-start_x = 25
-spacing = 40
-y_pos = 70
+for i, name in enumerate(["prev", "play", "next", "volume", "back"]):
 
-names =  ["prev", "play", "next", "volume", "back"]
+    bitmap = icons[name]["bitmap"]
+    palette = icons[name]["palette"]
 
-for i, name in enumerate(names):
     tile = displayio.TileGrid(
-        icons[name]["bitmap"],
-        pixel_shader=icons[name]["palette"],
-        x=start_x + i * spacing,
-        y=y_pos
-    )  
+        bitmap,
+        pixel_shader=palette,
+        x=volume_slots[i] - bitmap.width // 2,
+        y=button_y - bitmap.height // 2
+    )
+
     volume_group.append(tile)
     buttons.append(tile)
-    
+
 selected_index = 0
 
 volume_highlight = Rect(
-    x=buttons[selected_index].x - 2,
-    y=buttons[selected_index].y - 2,
-    width=buttons[selected_index].width + 32,
-    height=buttons[selected_index].height + 32,
+    volume_slots[selected_index] - 24,
+    198,
+    48,
+    48,
     outline=TIFFANY
 )
+volume_group.append(volume_highlight)
 
-volume_group.insert(0, volume_highlight)
+volume_group.append(Label(
+    terminalio.FONT,
+    text="ROTATE: SELECT   PRESS: ACTIVATE",
+    color=MUTED,
+    x=24,
+    y=280
+))
+
+
+
+def update_volume_display(level=None, actual=False):
+    global volume_level
+
+    if level is not None:
+        try:
+            new_level = float(level)
+
+            if 0 <= new_level <= 100:
+                volume_level = int(round(new_level))
+            else:
+                actual = False
+
+        except (ValueError, TypeError):
+            actual = False
+
+    value_text = (
+        "{}%".format(volume_level)
+        if actual else "{}%*".format(volume_level)
+    )
+    note_text = "SYSTEM VOLUME" if actual else "*ESTIMATE"
+
+    if volume_value_label.text != value_text:
+        volume_value_label.text = value_text
+
+    if volume_note.text != note_text:
+        volume_note.text = note_text
+
+    # Fill a segment for each 10% of volume
+    filled_segments = (volume_level + 9) // 10
+
+    for index, segment in enumerate(volume_segments):
+        segment.fill = (
+            TIFFANY if index < filled_segments
+            else PANEL_SELECTED
+        )
+
+update_volume_display()
+
     
 # Main view logic
 def switch_mode(new_mode):
-    global current_mode
+    global current_mode, player_serial_buffer 
     group.pop()
     
     # Sending message to the PC to start data transfer:
@@ -338,6 +500,19 @@ def switch_mode(new_mode):
     if current_mode == "stats" and new_mode != "stats":
         if stats_serial is not None:
             stats_serial.write(b"STOP\n")
+            
+    # Separate communication for the Volume menu
+    if current_mode != "volume" and new_mode == "volume":
+        gc.collect()
+        player_serial_buffer = ""
+        player_data.clear()
+
+        if stats_serial is not None:
+            stats_serial.write(b"PLAYER_START\n")
+
+    elif current_mode == "volume" and new_mode != "volume":
+        if stats_serial is not None:
+            stats_serial.write(b"PLAYER_STOP\n")
             
     current_mode = new_mode
     
@@ -566,6 +741,72 @@ while True:
 
 
     elif current_mode == "volume":
+        
+        
+        # Separate receiver for Volume-menu packets
+        if (
+            stats_serial is not None
+            and stats_serial.in_waiting > 0
+        ):
+            waiting = stats_serial.in_waiting
+
+            player_serial_buffer += stats_serial.read(waiting).decode()
+
+        # Do nothing here unless a complete packet has arrived
+        while "\n" in player_serial_buffer:
+            packet, player_serial_buffer = (
+                player_serial_buffer.split("\n", 1)
+            )
+            packet = packet.strip()
+
+            # Ignore anything that is not a player packet
+            if not packet.startswith("PLAYER|"):
+                continue
+
+            fields = packet.split("|")[1:]
+
+            for field in fields:
+                if "=" in field:
+                    key, value = field.split("=", 1)
+                    player_data[key] = value
+
+            # Update metadata only when the packet arrives
+            new_title = player_data.get(
+                "TITLE", "Track info unavailable"
+            )[:32]
+
+            new_artist = player_data.get(
+                "ARTIST", "Media info unavailable"
+            )[:36]
+
+            new_status = player_data.get(
+                "PLAYBACK", "Media controls ready"
+            )[:34]
+
+            if media_title.text != new_title:
+                media_title.text = new_title
+
+            if media_artist.text != new_artist:
+                media_artist.text = new_artist
+
+            if media_status.text != new_status:
+                media_status.text = new_status
+
+            raw_volume = player_data.get("VOLUME", "--")
+
+            try:
+                actual_volume = float(raw_volume)
+
+                if 0 <= actual_volume <= 100:
+                    # Use positional arguments
+                    update_volume_display(actual_volume, True)
+                else:
+                    update_volume_display()
+
+            except (ValueError, TypeError):
+                update_volume_display()
+
+
             
         if sub_mode == "adjust_volume":
             
@@ -573,8 +814,12 @@ while True:
                 cur = clk.value
                 if dt.value != cur:
                     cc.send(ConsumerControlCode.VOLUME_INCREMENT)
+                    volume_level = min(100, volume_level + 2)
                 else:
                     cc.send(ConsumerControlCode.VOLUME_DECREMENT)
+                    volume_level = max(0, volume_level - 2)
+                    
+                update_volume_display()
                 loc = cur
             
             if pressed:
@@ -593,8 +838,8 @@ while True:
             selected_index %= len(buttons)
             loc = cur
             
-            volume_highlight.x = buttons[selected_index].x - 2
-            volume_highlight.y = buttons[selected_index].y - 2
+            volume_highlight.x = volume_slots[selected_index] - 24
+            volume_highlight.y = 198
             
         if pressed:
             while not btn.value:

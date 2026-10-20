@@ -1,6 +1,121 @@
 import psutil
 import serial
 import time
+import asyncio
+
+# Optional media metadata support
+try:
+    from winsdk.windows.media.control import (
+        GlobalSystemMediaTransportControlsSessionManager
+        as MediaManager,
+        GlobalSystemMediaTransportControlsSessionPlaybackStatus
+        as PlaybackStatus,
+    )
+    MEDIA_API_AVAILABLE = True
+except Exception:
+    MEDIA_API_AVAILABLE = False
+
+# Optional Windows master-volume reading
+try:
+    from ctypes import cast, POINTER
+    from comtypes import CLSCTX_ALL
+    from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+
+    VOLUME_API_AVAILABLE = True
+except Exception:
+    VOLUME_API_AVAILABLE = False
+
+
+def clean_player_field(value, fallback="Unknown", limit=48):
+    value = str(value or fallback)
+    value = value.replace("|", "/")
+    value = value.replace("\r", " ").replace("\n", " ")
+    return value.strip()[:limit]
+
+
+async def read_media_info_async():
+    manager = await MediaManager.request_async()
+    session = manager.get_current_session()
+
+    if session is None:
+        return (
+            "No media playing",
+            "Open a supported media app",
+            "No active session",
+        )
+
+    properties = await session.try_get_media_properties_async()
+    playback = session.get_playback_info()
+
+    title = clean_player_field(
+        getattr(properties, "title", ""),
+        "Unknown title",
+    )
+    artist = clean_player_field(
+        getattr(properties, "artist", ""),
+        "Unknown artist",
+    )
+
+    if playback is None:
+        status = "Status unavailable"
+    elif playback.playback_status == PlaybackStatus.PLAYING:
+        status = "Playing"
+    elif playback.playback_status == PlaybackStatus.PAUSED:
+        status = "Paused"
+    elif playback.playback_status == PlaybackStatus.STOPPED:
+        status = "Stopped"
+    else:
+        status = "Not playing"
+
+    return title, artist, status
+
+
+def get_media_info():
+    if not MEDIA_API_AVAILABLE:
+        return (
+            "Media info unavailable",
+            "Metadata library unavailable",
+            "Metadata API unavailable",
+        )
+
+    try:
+        return asyncio.run(read_media_info_async())
+    except Exception:
+        return (
+            "Media info unavailable",
+            "Check supported media app",
+            "Media API error",
+        )
+
+
+def get_volume_percent():
+    if not VOLUME_API_AVAILABLE:
+        return "--"
+
+    try:
+        speakers = AudioUtilities.GetSpeakers()
+
+        try:
+            endpoint = speakers.EndpointVolume
+        except Exception:
+            interface = speakers.Activate(
+                IAudioEndpointVolume._iid_,
+                CLSCTX_ALL,
+                None,
+            )
+            endpoint = cast(
+                interface,
+                POINTER(IAudioEndpointVolume),
+            )
+
+        level = round(
+            endpoint.GetMasterVolumeLevelScalar() * 100
+        )
+        return str(max(0, min(100, level)))
+
+    except Exception:
+        return "--"
+
 
 # Configuration
 PORT = "COM4"
@@ -9,6 +124,9 @@ SEND_INTERVAL = 1.0
 
 ser = None
 sending = False
+player_sending = False
+last_player_send = 0.0
+last_player_state = None
 
 print("STARTING SCRIPT...")
 
@@ -44,15 +162,72 @@ while True:
             command = ser.readline().decode(
                 "utf-8", errors="ignore"
             ).strip()
-
+            
             if command == "START":
                 sending = True
-                print("Started data transfer")
+                player_sending = False
+                print("Started system monitor transfer")
 
             elif command == "STOP":
                 sending = False
-                print("Stopped data transfer")
+                print("Stopped system monitor transfer")
 
+            elif command == "PLAYER_START":
+                sending = False
+                player_sending = True
+                last_player_send = 0.0
+                last_player_state = None
+                print("Started player data transfer")
+
+            elif command == "PLAYER_STOP":
+                player_sending = False
+                last_player_state = None
+                print("Stopped player data transfer")
+
+        # Independent player sender: transmit only when values change
+        now_player = time.monotonic()
+
+        if (
+            player_sending
+            and now_player - last_player_send >= SEND_INTERVAL
+        ):
+            last_player_send = now_player
+
+            title, artist, playback = get_media_info()
+            volume = get_volume_percent()
+
+            # Normalize values before comparing them
+            title = clean_player_field(title)
+            artist = clean_player_field(artist)
+            playback = clean_player_field(playback)
+
+            current_player_state = (
+                volume,
+                title,
+                artist,
+                playback,
+            )
+
+            # First packet synchronizes the Pico.
+            # Later packets are sent only when a value changes.
+            if current_player_state != last_player_state:
+                player_packet = (
+                    f"PLAYER|VOLUME={volume}|"
+                    f"TITLE={title}|"
+                    f"ARTIST={artist}|"
+                    f"PLAYBACK={playback}\n"
+                )
+
+                ser.write(player_packet.encode("utf-8"))
+
+                last_player_state = current_player_state
+
+                print(
+                    "PLAYER SENT:",
+                    player_packet.strip()
+                )
+        
+        # Only send system statistics when the monitor is active
         if not sending:
             time.sleep(0.05)
             continue
