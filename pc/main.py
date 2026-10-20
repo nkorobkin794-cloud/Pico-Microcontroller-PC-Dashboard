@@ -3,17 +3,20 @@ import serial
 import time
 import asyncio
 
-# Optional media metadata support
+
+# Windows media metadata using the working WinRT packages
 try:
-    from winsdk.windows.media.control import (
+    from winrt.windows.media.control import (
         GlobalSystemMediaTransportControlsSessionManager
         as MediaManager,
         GlobalSystemMediaTransportControlsSessionPlaybackStatus
         as PlaybackStatus,
     )
     MEDIA_API_AVAILABLE = True
-except Exception:
+except Exception as error:
+    print("Media API import failed:", repr(error))
     MEDIA_API_AVAILABLE = False
+
 
 # Optional Windows master-volume reading
 try:
@@ -33,26 +36,70 @@ def clean_player_field(value, fallback="Unknown", limit=48):
     return value.strip()[:limit]
 
 
+# Convert Russian Cyrillic into Latin characters for the Pico.
+# English text and other characters pass through unchanged.
+RUSSIAN_TO_LATIN = {
+    "а": "a", "б": "b", "в": "v", "г": "g",
+    "д": "d", "е": "e", "ё": "yo", "ж": "zh",
+    "з": "z", "и": "i", "й": "y", "к": "k",
+    "л": "l", "м": "m", "н": "n", "о": "o",
+    "п": "p", "р": "r", "с": "s", "т": "t",
+    "у": "u", "ф": "f", "х": "kh", "ц": "ts",
+    "ч": "ch", "ш": "sh", "щ": "shch", "ъ": "",
+    "ы": "y", "ь": "", "э": "e", "ю": "yu",
+    "я": "ya",
+}
+
+
+def transliterate_russian(text):
+    result = []
+
+    for character in str(text):
+        lowercase = character.lower()
+        replacement = RUSSIAN_TO_LATIN.get(lowercase)
+
+        if replacement is None:
+            result.append(character)
+        elif character.isupper() and replacement:
+            result.append(replacement[0].upper() + replacement[1:])
+        else:
+            result.append(replacement)
+
+    return "".join(result)
+
 async def read_media_info_async():
     manager = await MediaManager.request_async()
-    session = manager.get_current_session()
+    sessions = list(manager.get_sessions())
 
-    if session is None:
+    if not sessions:
         return (
             "No media playing",
             "Open a supported media app",
             "No active session",
         )
 
+    # Prefer a session that is currently playing.
+    session = sessions[0]
+
+    for candidate in sessions:
+        info = candidate.get_playback_info()
+
+        if (
+            info is not None
+            and info.playback_status == PlaybackStatus.PLAYING
+        ):
+            session = candidate
+            break
+
     properties = await session.try_get_media_properties_async()
     playback = session.get_playback_info()
 
     title = clean_player_field(
-        getattr(properties, "title", ""),
+        properties.title,
         "Unknown title",
     )
     artist = clean_player_field(
-        getattr(properties, "artist", ""),
+        properties.artist,
         "Unknown artist",
     )
 
@@ -74,13 +121,14 @@ def get_media_info():
     if not MEDIA_API_AVAILABLE:
         return (
             "Media info unavailable",
-            "Metadata library unavailable",
+            "Media library unavailable",
             "Metadata API unavailable",
         )
 
     try:
         return asyncio.run(read_media_info_async())
-    except Exception:
+    except Exception as error:
+        print("Media read failed:", repr(error))
         return (
             "Media info unavailable",
             "Check supported media app",
@@ -164,25 +212,32 @@ while True:
             ).strip()
             
             if command == "START":
+                if not sending:
+                    last_send = 0
+                    print("Started system monitor transfer")
+
                 sending = True
                 player_sending = False
-                print("Started system monitor transfer")
 
             elif command == "STOP":
                 sending = False
-                print("Stopped system monitor transfer")
+                player_sending = False
 
             elif command == "PLAYER_START":
+                if not player_sending:
+                    last_player_send = 0.0
+                    last_player_state = None
+                    print("Started player data transfer")
+
                 sending = False
                 player_sending = True
-                last_player_send = 0.0
-                last_player_state = None
-                print("Started player data transfer")
 
             elif command == "PLAYER_STOP":
+                if player_sending:
+                    print("Stopped player data transfer")
+
                 player_sending = False
                 last_player_state = None
-                print("Stopped player data transfer")
 
         # Independent player sender: transmit only when values change
         now_player = time.monotonic()
@@ -196,9 +251,15 @@ while True:
             title, artist, playback = get_media_info()
             volume = get_volume_percent()
 
-            # Normalize values before comparing them
-            title = clean_player_field(title)
-            artist = clean_player_field(artist)
+            # Prepare text for the Pico's built-in font
+            title = transliterate_russian(
+                clean_player_field(title)
+            )[:32]
+
+            artist = transliterate_russian(
+                clean_player_field(artist)
+            )[:36]
+
             playback = clean_player_field(playback)
 
             current_player_state = (
@@ -326,6 +387,9 @@ while True:
             pass
 
         ser = None
+        sending = False
+        player_sending = False
+        last_player_state = None
 
         while ser is None:
             try:

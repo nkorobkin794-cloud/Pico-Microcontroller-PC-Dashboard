@@ -60,7 +60,8 @@ last_encoder_move = 0
 
 # Separate data storage for the Volume menu
 player_data = {}
-player_serial_buffer = ""
+player_serial_buffer = b""
+last_mode_announce = 0
 
 # Variables for menu innitialization
 current_mode = "menu"
@@ -374,6 +375,7 @@ volume_group.append(Label(
 ))
 
 volume_level = 50
+volume_actual_available = False
 
 volume_value_label = Label(
     terminalio.FONT,
@@ -489,13 +491,16 @@ update_volume_display()
     
 # Main view logic
 def switch_mode(new_mode):
-    global current_mode, player_serial_buffer 
+    global current_mode, player_serial_buffer
+    global last_mode_announce, volume_actual_available
     group.pop()
     
     # Sending message to the PC to start data transfer:
     if current_mode != "stats" and new_mode == "stats":
         if stats_serial is not None:
             stats_serial.write(b"START\n")
+            
+        last_mode_announce = time.monotonic()
     
     if current_mode == "stats" and new_mode != "stats":
         if stats_serial is not None:
@@ -504,11 +509,13 @@ def switch_mode(new_mode):
     # Separate communication for the Volume menu
     if current_mode != "volume" and new_mode == "volume":
         gc.collect()
-        player_serial_buffer = ""
+        player_serial_buffer = b""
         player_data.clear()
 
         if stats_serial is not None:
             stats_serial.write(b"PLAYER_START\n")
+        
+        last_mode_announce = time.monotonic()
 
     elif current_mode == "volume" and new_mode != "volume":
         if stats_serial is not None:
@@ -634,6 +641,21 @@ while True:
     moved = cur != loc
     pressed = not btn.value
     
+    # Repeat the current mode command to support late PC startup.
+    now = time.monotonic()
+
+    if (
+        stats_serial is not None
+        and now - last_mode_announce >= 2
+    ):
+        if current_mode == "stats":
+            stats_serial.write(b"START\n")
+            last_mode_announce = now
+
+        elif current_mode == "volume":
+            stats_serial.write(b"PLAYER_START\n")
+            last_mode_announce = now
+    
 
     if current_mode == "menu":
         # Updating Rotary Encoder
@@ -743,23 +765,29 @@ while True:
     elif current_mode == "volume":
         
         
-        # Separate receiver for Volume-menu packets
+        
+        # Separate receiver for Volume-menu packets.
+        # Buffer raw bytes so UTF-8 characters cannot be split
+        # across separate decode operations.
         if (
             stats_serial is not None
             and stats_serial.in_waiting > 0
         ):
             waiting = stats_serial.in_waiting
+            player_serial_buffer += stats_serial.read(waiting)
 
-            player_serial_buffer += stats_serial.read(waiting).decode()
-
-        # Do nothing here unless a complete packet has arrived
-        while "\n" in player_serial_buffer:
-            packet, player_serial_buffer = (
-                player_serial_buffer.split("\n", 1)
+        # Decode only after a complete packet has arrived.
+        while b"\n" in player_serial_buffer:
+            packet_bytes, player_serial_buffer = (
+                player_serial_buffer.split(b"\n", 1)
             )
-            packet = packet.strip()
 
-            # Ignore anything that is not a player packet
+            try:
+                packet = packet_bytes.decode("utf-8").strip()
+            except UnicodeError:
+                # Ignore a corrupted packet instead of crashing.
+                continue
+
             if not packet.startswith("PLAYER|"):
                 continue
 
@@ -770,7 +798,6 @@ while True:
                     key, value = field.split("=", 1)
                     player_data[key] = value
 
-            # Update metadata only when the packet arrives
             new_title = player_data.get(
                 "TITLE", "Track info unavailable"
             )[:32]
@@ -798,28 +825,37 @@ while True:
                 actual_volume = float(raw_volume)
 
                 if 0 <= actual_volume <= 100:
-                    # Use positional arguments
+                    volume_actual_available = True
                     update_volume_display(actual_volume, True)
-                else:
-                    update_volume_display()
+
+                elif not volume_actual_available:
+                    update_volume_display(None, False)
 
             except (ValueError, TypeError):
-                update_volume_display()
-
+                if not volume_actual_available:
+                    update_volume_display(None, False)
 
             
         if sub_mode == "adjust_volume":
             
             if moved:
                 cur = clk.value
+
                 if dt.value != cur:
                     cc.send(ConsumerControlCode.VOLUME_INCREMENT)
-                    volume_level = min(100, volume_level + 2)
+
+                    if not volume_actual_available:
+                        volume_level = min(100, volume_level + 2)
+
                 else:
                     cc.send(ConsumerControlCode.VOLUME_DECREMENT)
-                    volume_level = max(0, volume_level - 2)
-                    
-                update_volume_display()
+
+                    if not volume_actual_available:
+                        volume_level = max(0, volume_level - 2)
+
+                # Keep the display consistent with its active data source.
+                update_volume_display(None, volume_actual_available)
+
                 loc = cur
             
             if pressed:
