@@ -4,6 +4,16 @@ A Raspberry Pi Pico-based desktop dashboard with a Windows companion application
 
 ![Pico PC Dashboard](assets/images/dashboard.jpg)
 
+---
+
+![Pico PC Dashboard](assets/images/stats.jpg)
+
+---
+
+![Pico PC Dashboard](assets/images/player.jpg)
+
+---
+
 **Version 1.0.0** · CircuitPython · Python · Windows
 
 The project combines a 480 × 320 ST7796 TFT display, rotary encoder, AHT10/AHT20 room sensor, USB HID media controls, and a Windows application that sends system telemetry and media-player information over USB serial.
