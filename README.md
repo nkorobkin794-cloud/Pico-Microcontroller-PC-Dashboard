@@ -2,6 +2,8 @@
 
 A Raspberry Pi Pico-based desktop dashboard with a Windows companion application, live system monitoring, environmental sensing, and media controls.
 
+Project Story: Read about the design and development of the custom 3D-printed enclosure, including the process of building the physical case for the dashboard, in my [Hashnode article](https://nek1t-blog.hashnode.dev/3d-printed-case-for-the-microcontroller-project-raspberry-pi-pico).
+
 ![Pico PC Dashboard](assets/images/dashboard.jpg)
 
 ---
