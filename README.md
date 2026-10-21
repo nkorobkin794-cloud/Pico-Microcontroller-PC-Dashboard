@@ -2,7 +2,7 @@
 
 A Raspberry Pi Pico-based desktop dashboard with a Windows companion application, live system monitoring, environmental sensing, and media controls.
 
-![Pico PC Dashboard](assets/dashboard.jpg)
+![Pico PC Dashboard](assets/images/dashboard.jpg)
 
 **Version 1.0.0** · CircuitPython · Python · Windows
 
