@@ -1,8 +1,63 @@
 # Pico Microcontroller PC Dashboard
 
-**Version 1.0** — a Raspberry Pi Pico-based desktop dashboard with a Windows companion application.
+A Raspberry Pi Pico-based desktop dashboard with a Windows companion application, live system monitoring, environmental sensing, and media controls.
 
-The project combines a 480 × 320 ST7796 TFT display, a rotary encoder, an AHT10/AHT20 room sensor, USB HID media controls, and a Python application on the PC. The Pico owns the user interface and sensor readings; the PC application supplies system telemetry and media-player information over USB serial.
+![Pico PC Dashboard](assets/dashboard.jpg)
+
+**Version 1.0.0** · CircuitPython · Python · Windows
+
+The project combines a 480 × 320 ST7796 TFT display, rotary encoder, AHT10/AHT20 room sensor, USB HID media controls, and a Windows application that sends system telemetry and media-player information over USB serial.
+
+---
+
+## Table of Contents
+
+- [Features](#features)
+- [Architecture](#architecture)
+- [Hardware and wiring](#hardware-and-wiring)
+- [Pico files and libraries](#pico-files-and-libraries)
+- [PC software setup](#pc-software-setup)
+- [Serial configuration](#serial-configuration)
+- [Communication protocol](#communication-protocol)
+- [User interaction](#user-interaction)
+- [Troubleshooting](#troubleshooting)
+- [Known limitations](#known-limitations)
+- [Version status](#version-status)
+
+---
+
+## Quick Start
+
+### 1. Prepare the Raspberry Pi Pico
+
+1. Install a compatible version of CircuitPython on the Pico.
+2. Copy `code.py` and the required library files to the Pico's `CIRCUITPY` drive.
+3. Copy the `images/` directory containing the five player-control bitmaps.
+4. Include `boot.py` if your project uses it to configure USB CDC.
+
+See [Pico files and libraries](#pico-files-and-libraries) for details.
+
+### 2. Install PC dependencies
+
+Install Python on Windows, open a terminal in the project directory, and run:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+### 3. Configure the serial port
+
+Connect the Pico and identify its USB CDC data COM port in Windows. Update the `PORT` setting in the PC script if necessary.
+
+### 4. Start the dashboard
+
+Run the companion application:
+
+```bash
+python pc_dashboard.py
+```
+
+Use the rotary encoder to navigate the dashboard and select System Monitor or Volume.
 
 ---
 
@@ -272,12 +327,18 @@ The Pico's built-in font does not cover all Cyrillic characters. The PC script t
 
 ---
 
+## Known Limitations
+
+- **Windows-specific PC application:** The companion script relies on Windows APIs for media sessions and master-volume control.
+- **COM port configuration:** Windows may assign a different COM port when the Pico is connected. Update the `PORT` setting accordingly.
+- **Media metadata availability:** Track titles, artist names, and playback states depend on whether Windows exposes the player's media session.
+- **Battery readings:** Battery information may be unavailable on desktop PCs or devices that do not expose a battery reading.
+- **Russian text:** Russian track and artist metadata is transliterated into Latin characters on the PC because the Pico uses its built-in font rather than loading a larger Cyrillic font.
+
+---
+  
 ## Version status
 
 **V1.0 — stable baseline for continued development.**
 
 The current version includes the three-mode UI (main menu, System Monitor, Volume/Media Player), 12 system/room metrics, the independent player-data protocol, change-driven player updates, Windows master-volume and media-session integration, startup mode reannouncement, and PC-side Russian transliteration. Preserve this version as a known-good baseline before experimenting with additional fonts, display objects, or protocol changes.
-
-## Commit summary
-
-See the accompanying V1 commit message for the full change list and rationale.
