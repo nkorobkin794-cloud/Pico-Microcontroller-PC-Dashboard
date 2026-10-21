@@ -1,3 +1,4 @@
+
 # Python cache
 __pycache__/
 *.py[cod]
@@ -6,9 +7,23 @@ __pycache__/
 build/
 dist/
 
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables and local secrets
+.env
+.env.*
+!.env.example
+
 # Operating system files
 .DS_Store
-Thumbs.db'
+Thumbs.db
 
-# Standard Pico Cache Files
+# Editor settings
+.vscode/
+.idea/
+
+# Standard Python package metadata
 *.dist-info/
